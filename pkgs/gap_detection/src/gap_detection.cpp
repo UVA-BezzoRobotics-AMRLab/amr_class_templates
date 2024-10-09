@@ -152,11 +152,6 @@ void GapDetector::find_gaps(void)
                 !std::isinf((p1 - pe).norm()) &&
                 (p1 - pe).norm() >= gap_thresh_)
             {
-                if ((p1-odom2).norm() < .15)
-                    RCLCPP_INFO(this->get_logger(), "too close CCW -- P1: %.2f, %.2f", p1(0), p1(1));
-                if ((pe-odom2).norm() < .15)
-                    RCLCPP_INFO(this->get_logger(), "too close CCW -- P1: %.2f, %.2f", pe(0), pe(1));
-
                 Eigen::Vector4d gap(p1.x(), p1.y(), pe.x(), pe.y());
                 gaps.push_back(gap);
             }
@@ -228,11 +223,6 @@ void GapDetector::find_gaps(void)
                 !std::isinf((p2 - pe).norm()) &&
                 (p2 - pe).norm() >= gap_thresh_)
             {
-                if ((p2-odom2).norm() < .15)
-                    RCLCPP_INFO(this->get_logger(), "too close CW -- P2: %.2f, %.2f", p2(0), p2(1));
-                if ((pe-odom2).norm() < .15)
-                    RCLCPP_INFO(this->get_logger(), "too close CW -- PE: %.2f, %.2f", pe(0), pe(1));
-
                 Eigen::Vector4d gap(p2.x(), p2.y(), pe.x(), pe.y());
                 gaps.push_back(gap);
             }
