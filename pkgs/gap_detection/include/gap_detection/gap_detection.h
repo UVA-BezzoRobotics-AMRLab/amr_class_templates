@@ -3,6 +3,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <geometry_msgs/msg/pose_array.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
 #include <Eigen/Core>
@@ -20,7 +21,9 @@ private:
 
     void find_gaps(void);
 
+    void publish_gaps(const std::vector<Eigen::Vector4d> &gaps);
     void visualize_gaps(const std::vector<Eigen::Vector4d> &gaps);
+
     bool is_gap_near_scan(const Eigen::Vector2d &gap);
     int get_indices_from_point(const Eigen::Vector2d &point);
 
@@ -29,6 +32,7 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
 
+    rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr gap_pub_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_arr_pub_;
 
     bool odom_init_;

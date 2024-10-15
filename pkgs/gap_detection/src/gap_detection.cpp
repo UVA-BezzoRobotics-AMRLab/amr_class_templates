@@ -1,28 +1,30 @@
-#include <gap_detection.h>
+#include <gap_detection/gap_detection.h>
 
 #include <vector>
 
 #include <rmw/qos_profiles.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <geometry_msgs/msg/point.hpp>
+#include <std_msgs/msg/color_rgba.hpp>
 
 GapDetector::GapDetector() : Node("gap_detector")
 {
     using namespace std::chrono_literals;
 
     scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
-        "TTB05/scan",
+        "TTB06/scan",
         rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(rmw_qos_profile_sensor_data), rmw_qos_profile_sensor_data),
         [this](const sensor_msgs::msg::LaserScan &msg)
         { this->laser_callback(msg); });
 
     odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-        "TTB05/odom",
+        "TTB06/odom",
         rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(rmw_qos_profile_sensor_data), rmw_qos_profile_sensor_data),
         [this](const nav_msgs::msg::Odometry &msg)
         { this->odom_callback(msg); });
 
-    marker_arr_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("TTB05/gap_viz", 10);
+    gap_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("TTB06/gaps", 10);
+    marker_arr_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("TTB06/gap_viz", 10);
 
     timer_ = this->create_wall_timer(
         100ms, // Period of rate that function is called
@@ -65,7 +67,6 @@ void GapDetector::odom_callback(const nav_msgs::msg::Odometry &msg)
         msg.pose.pose.position.x,
         msg.pose.pose.position.y,
         yaw + M_PI / 2);
-
 }
 
 void GapDetector::laser_callback(const sensor_msgs::msg::LaserScan &msg)
@@ -113,7 +114,7 @@ void GapDetector::find_gaps(void)
 
         for (unsigned int j = i + 1; j < laser_msg_.ranges.size(); ++j)
         {
-            if (laser_msg_.ranges[j] < laser_msg_.range_min)
+            if (laser_msg_.ranges[j] < laser_msg_.range_min || laser_msg_.ranges[j] > laser_msg_.range_max)
                 continue;
 
             double angle = laser_msg_.angle_min + j * laser_msg_.angle_increment + odom_(2);
@@ -169,6 +170,9 @@ void GapDetector::find_gaps(void)
         Eigen::Vector2d p1(laser_msg_.ranges[i] * cos(a1), laser_msg_.ranges[i] * sin(a1));
         Eigen::Vector2d p2(laser_msg_.ranges[i - 1] * cos(a2), laser_msg_.ranges[i - 1] * sin(a2));
 
+        p1 += odom2;
+        p2 += odom2;
+
         if ((p1 - p2).norm() < threshold_ ||
             laser_msg_.ranges[i] > laser_msg_.ranges[i - 1] ||
             std::isinf(laser_msg_.ranges[i]) ||
@@ -184,7 +188,7 @@ void GapDetector::find_gaps(void)
 
         for (int j = i - 1; j >= 0; --j)
         {
-            if (laser_msg_.ranges[j] < laser_msg_.range_min)
+            if (laser_msg_.ranges[j] < laser_msg_.range_min || laser_msg_.ranges[j] > laser_msg_.range_max)
                 continue;
 
             double angle = laser_msg_.angle_min + j * laser_msg_.angle_increment + odom_(2);
@@ -231,7 +235,9 @@ void GapDetector::find_gaps(void)
         --i;
     }
 
+    publish_gaps(gaps);
     visualize_gaps(gaps);
+    // lidar_debug();
 }
 
 int GapDetector::get_indices_from_point(const Eigen::Vector2d &point)
@@ -262,6 +268,33 @@ bool GapDetector::is_gap_near_scan(const Eigen::Vector2d &gap)
     }
 
     return false;
+}
+
+void GapDetector::publish_gaps(const std::vector<Eigen::Vector4d> &gaps)
+{
+    geometry_msgs::msg::PoseArray msg;
+    msg.header.stamp = this->now();
+    msg.header.frame_id = "odom";
+
+    for(size_t i = 0; i < gaps.size(); ++i){
+        Eigen::Vector4d gap = gaps[i];
+
+        geometry_msgs::msg::Pose p1;
+        p1.position.x = gap(0);
+        p1.position.y = gap(1);
+        p1.position.z = 0;
+        p1.orientation.w = 1;
+        msg.poses.push_back(p1);
+
+        geometry_msgs::msg::Pose p2;
+        p2.position.x = gap(2);
+        p2.position.y = gap(3);
+        p2.position.z = 0;
+        p2.orientation.w = 1;
+        msg.poses.push_back(p2);
+    }
+
+    gap_pub_->publish(msg);
 }
 
 void GapDetector::visualize_gaps(const std::vector<Eigen::Vector4d> &gaps)
@@ -303,6 +336,7 @@ void GapDetector::visualize_gaps(const std::vector<Eigen::Vector4d> &gaps)
 
     marker_arr_pub_->publish(msg);
 }
+
 
 int main(int argc, char *argv[])
 {
