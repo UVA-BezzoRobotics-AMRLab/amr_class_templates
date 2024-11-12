@@ -14,7 +14,7 @@ public:
   TurtlebotTurn() 
       : Node("ttb_turn")
   {
-    // Create Subscribe to the IMU data topic fromm Turtlebot
+    // Create Subscriber to the IMU data topic fromm Turtlebot
     imu_sub  = this->create_subscription<sensor_msgs::msg::Imu>(
       "TTBXX/imu", 
       rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(rmw_qos_profile_sensor_data), rmw_qos_profile_sensor_data),
