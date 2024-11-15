@@ -30,7 +30,7 @@ public:
     }
 
     // Timer for setup function
-    _setup_timer = this->create_wall_timer(5000ms,
+    _setup_timer = this->create_wall_timer(1000ms,
       [this] (void) { this->initial_setup(); });
   }
 
@@ -51,6 +51,8 @@ private:
           _cmd_timer   = this->create_wall_timer(10ms, [this] (void) { this->command_loop_function(); });
           _setup_timer = this->create_wall_timer(1000ms, [this] (void) { this->initial_setup(); });
 
+          _vel_cmd.linear.x = 0.0;
+          _vel_cmd.linear.y = 0.0;
           _vel_cmd.linear.z = 0.0;
           _is_armed = true;
         }
@@ -72,9 +74,9 @@ private:
     _vel_pub->publish(_vel_cmd);
   }
 
-  // ---------------------------------//
-  // Variable used by the Node Object //
-  // ---------------------------------//
+  // ----------------------------------//
+  // Variables used by the Node Object //
+  // ----------------------------------//
 
   // ROS service client object
   rclcpp::Client<crazyflie_interfaces::srv::Arm>::SharedPtr _arm_client;
@@ -96,14 +98,13 @@ private:
   bool _is_armed;
 
   // Constant thrust command in the vertical direction
-  static constexpr double kLinearZThrust    = 45000.0;
+  static constexpr double kLinearZThrust = 55000.0;
 };
 
 int main(int argc, char *argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<FlyNode>("cf80"));
+  rclcpp::spin(std::make_shared<FlyNode>("cf62"));
   rclcpp::shutdown();
-
   return 0;
 }

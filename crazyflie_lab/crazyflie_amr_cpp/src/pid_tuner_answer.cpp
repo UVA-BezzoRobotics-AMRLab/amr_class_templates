@@ -28,9 +28,13 @@ public:
       "/" + cf_name + "/cmd_vel_legacy", qos_profile,
       [this](const geometry_msgs::msg::Twist &msg) { this->vel_callback(msg); });
 
-    _data_sub = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
+    _gyro_sub = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
       "/" + cf_name + "/gyro_data", qos_profile,
-      [this](const crazyflie_interfaces::msg::LogDataGeneric &msg) { this->data_callback(msg); });
+      [this](const crazyflie_interfaces::msg::LogDataGeneric &msg) { this->gyro_callback(msg); });
+
+    _accel_sub = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
+      "/" + cf_name + "/accel_data", qos_profile,
+      [this](const crazyflie_interfaces::msg::LogDataGeneric &msg) { this->accel_callback(msg); });
 
     _setup_timer = this->create_wall_timer(500ms, [this](void) { this->setup(); });
 
@@ -45,7 +49,6 @@ private:
       RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), "Set Parameter Service is ready.");
 
       _pitch_Kp = kStartKp;
-      _pitch_Ki = kStartKi;
       _pitch_Kd = kStartKd;
 
       _stable_1  = false;
@@ -57,18 +60,18 @@ private:
       kp.value.type         = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
       kp.value.double_value = _pitch_Kp;
 
-      rcl_interfaces::msg::Parameter ki;
-      ki.name               = _cf_name + ".params.pid_rate.pitch_ki";
-      ki.value.type         = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-      ki.value.double_value = _pitch_Ki;
-
       rcl_interfaces::msg::Parameter kd;
       kd.name               = _cf_name + ".params.pid_rate.pitch_kd";
       kd.value.type         = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
       kd.value.double_value = _pitch_Kd;
 
+      rcl_interfaces::msg::Parameter ki;
+      ki.name               = _cf_name + ".params.pid_rate.pitch_ki";
+      ki.value.type         = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+      ki.value.double_value = 0.0;
+
       _set_param_req = std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
-      _set_param_req->parameters = std::vector<rcl_interfaces::msg::Parameter>({kp, ki, kd});
+      _set_param_req->parameters = std::vector<rcl_interfaces::msg::Parameter>({kp, kd, ki});
       _set_param_result = _set_param_client->async_send_request(_set_param_req).share();
 
       _cmd_timer = this->create_wall_timer(1000ms, [this](void) { this->control_func(); });
@@ -80,7 +83,9 @@ private:
 
   void control_func(void)
   {
-    if(_ang_vel_received && _vel_cmd_active) {
+    if(_ang_vel_received && _accel_received && _vel_cmd_active) {
+
+      RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), "Control2");
       
       if(_set_param_result.valid()) {
         if(_set_param_result.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -95,22 +100,26 @@ private:
       // If call has finished, update gains and set parameters again
       if(!_set_param_result.valid()) {
 
+        // Check mean of z acceleration
+        double accel_z = std::accumulate(_accel_data_z.begin(), _accel_data_z.end(), 0.0) / _accel_data_z.size();
+
         // Standard deviation of data
         std::vector<double> stdev;
         stdev.push_back(stdev_compute(_ang_data_x));
         stdev.push_back(stdev_compute(_ang_data_y));
         stdev.push_back(stdev_compute(_ang_data_y));
 
-        // Min/Max standard deviation of data
+        // Min/Max standard deviation of angular velocity data
         auto minmax_stdev = std::minmax_element(stdev.begin(), stdev.end());
         double min_stdev = *minmax_stdev.first;
         double max_stdev = *minmax_stdev.second;
 
-        RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), std::string("Min Stdev: " + std::to_string(min_stdev)).c_str()  );
-        RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), std::string("Max Stdev: " + std::to_string(max_stdev)).c_str()  );
+        RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), "Avg. Z Accel: %0.2f", accel_z);
+        RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), "Min Stdev: %0.2f", min_stdev);
+        RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), "Max Stdev: %0.2f", max_stdev);
 
         // Determine if UAV has switched from statble to oscillating to back to stable
-        if ((!_stable_1) && (min_stdev < 5.0) && (max_stdev < 10.0)) {
+        if ((!_stable_1) && (min_stdev < 5.0) && (max_stdev < 10.0) && fabs(accel_z - 1.0) < 0.4 ) {
           RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), "Stablized: First");
           _stable_1 = true;
         } else if (_stable_1 && (max_stdev > 65.0)) {
@@ -123,15 +132,14 @@ private:
 
         // Adjust gains if necessary
         if ((!_stable_1) || (!_oscillate)) {
-          _pitch_Kp += 20.0; //20.0;
+          _pitch_Kp += 20.0;
         } else if (_stable_1 && _oscillate && (!_stable_2)) {
-          _pitch_Kd += 0.2; //0.2;
+          _pitch_Kd += 0.2;
         }
 
         // Call to set parameters service
         _set_param_req->parameters[0].value.double_value = _pitch_Kp;
-        _set_param_req->parameters[1].value.double_value = _pitch_Ki;
-        _set_param_req->parameters[2].value.double_value = _pitch_Kd;
+        _set_param_req->parameters[1].value.double_value = _pitch_Kd;
 
         _set_param_result = _set_param_client->async_send_request(_set_param_req).share();
       }
@@ -140,8 +148,12 @@ private:
     }
   }
 
-  void data_callback(const crazyflie_interfaces::msg::LogDataGeneric &msg)
+  void gyro_callback(const crazyflie_interfaces::msg::LogDataGeneric &msg)
   {
+    // RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), "Ang Velocity X: %.2f", msg.values[0]);
+    // RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), "Ang Velocity Y: %.2f", msg.values[1]);
+    // RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), "Ang Velocity Z: %.2f", msg.values[2]);
+
     _ang_data_x.push_back(msg.values[0]);
     _ang_data_y.push_back(msg.values[1]);
     _ang_data_z.push_back(msg.values[2]);
@@ -152,6 +164,25 @@ private:
       _ang_data_z.erase(_ang_data_z.begin());
 
       _ang_vel_received = true;
+    }
+  }
+
+  void accel_callback(const crazyflie_interfaces::msg::LogDataGeneric &msg)
+  {
+    // RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), "Accel X: %.2f", msg.values[0]);
+    // RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), "Accel Y: %.2f", msg.values[1]);
+    // RCLCPP_INFO(rclcpp::get_logger("pid_tuner"), "Accel Z: %.2f", msg.values[2]);
+    
+    _accel_data_x.push_back(msg.values[0]);
+    _accel_data_y.push_back(msg.values[1]);
+    _accel_data_z.push_back(msg.values[2]);
+
+    if(_accel_data_x.size() > kMaxDataLength) {
+      _accel_data_x.erase(_accel_data_x.begin());
+      _accel_data_y.erase(_accel_data_y.begin());
+      _accel_data_z.erase(_accel_data_z.begin());
+
+      _accel_received = true;
     }
   }
 
@@ -170,7 +201,7 @@ private:
 
     // Calculate the sum of squared differences from the mean
     double stdev = 0.0;
-    for (int i = 0; i < size; ++i) {
+    for (size_t i = 0; i < size; ++i) {
         stdev += pow(data[i] - mean, 2);
     }
 
@@ -183,7 +214,8 @@ private:
   // ---------------------------------//
 
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr _vel_sub;
-  rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr _data_sub;
+  rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr _gyro_sub;
+  rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr _accel_sub;
   rclcpp::TimerBase::SharedPtr _cmd_timer;
   rclcpp::TimerBase::SharedPtr _setup_timer;
 
@@ -195,31 +227,36 @@ private:
   std::string _cf_name;
 
   bool _vel_cmd_active;
+
   bool _ang_vel_received;
   std::vector<double> _ang_data_x;
   std::vector<double> _ang_data_y;
   std::vector<double> _ang_data_z;
-
-  double _pitch_Kp;
-  double _pitch_Ki;
-  double _pitch_Kd;
+  
+  bool _accel_received;
+  std::vector<double> _accel_data_x;
+  std::vector<double> _accel_data_y;
+  std::vector<double> _accel_data_z;
 
   bool _stable_1;
   bool _stable_2;
   bool _oscillate;
 
-  static constexpr double kStartKp = 10.0;
-  static constexpr double kStartKi = 0.0;
+  static constexpr size_t kMaxDataLength = 5;
+
+  double _pitch_Kp;
+  double _pitch_Kd;
+
+  static constexpr double kStartKp = 0.0;
   static constexpr double kStartKd = 0.0;
 
-  static constexpr size_t kMaxDataLength = 5;
 };
 
 
 int main(int argc, char *argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<PidTunerNode>());
+  rclcpp::spin(std::make_shared<PidTunerNode>("cf80"));
   rclcpp::shutdown();
 
   return 0;

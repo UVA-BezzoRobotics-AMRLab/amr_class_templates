@@ -21,7 +21,7 @@ class FlyNode(Node):
         
         self.fly_cmd = Twist()           # Thrust command
         self.fly_cmd.linear.z  = 0.0     # Initially send zero thrust
-        self.fly_active_thrust = 45000.0 # Thrust command once active
+        self.fly_active_thrust = 55000.0 # Thrust command once active
 
         self.ctrl_period_s = 1.0/100.0  # 100 Hz
 
@@ -55,7 +55,7 @@ class FlyNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     
-    fly_node = FlyNode()
+    fly_node = FlyNode('cf80')
     rclpy.spin(fly_node)
 
     fly_node.destroy_node()
