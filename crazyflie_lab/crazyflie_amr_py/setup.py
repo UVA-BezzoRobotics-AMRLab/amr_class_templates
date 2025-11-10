@@ -21,7 +21,8 @@ setup(
     entry_points={
         'console_scripts': [
             'pid_tuner = src.pid_tuner_answer:main',
-            'fly_node  = src.fly_node:main'
+            'fly_node  = src.fly_node:main',
+            'takeoff_node = src.takeoff_node:main'
         ],
     },
 )

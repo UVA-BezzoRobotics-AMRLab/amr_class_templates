@@ -19,21 +19,21 @@ def generate_launch_description():
     fly_node = Node(
         package='crazyflie_amr_py',
         namespace='',
-        executable='fly_node',
-        name='fly_node'
+        executable='takeoff_node',
+        name='takeoff_node'
     )
-    
-    pid_tuner = Node(
-        package='crazyflie_amr_py',
-        namespace='',
-        executable='pid_tuner',
-        name='pid_tuner'
-    )
+
+    # pid_tuner = Node(
+    #     package='crazyflie_amr_py',
+    #     namespace='',
+    #     executable='pid_tuner',
+    #     name='pid_tuner'
+    # )
 
     return LaunchDescription([
         crazyflie_launch,
         fly_node,
-        pid_tuner
+        # pid_tuner
     ])
 
  
